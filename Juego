@@ -1,0 +1,1845 @@
+#include <SDL2/SDL.h>
+#include <SDL2_image/SDL_image.h>
+#include <SDL2_ttf/SDL_ttf.h>
+#include <stdio.h>
+#include <stdlib.h>
+#include <stdbool.h>
+#include <math.h>
+#include <time.h>
+#include <MacTypes.h>
+
+#define TILE_SIZE 70
+#define PLAYER_WIDTH 160
+#define PLAYER_HEIGHT 80
+#define HITBOX_WIDTH 10
+#define HITBOX_HEIGHT 10
+#define BULLET_WIDTH 30
+#define BULLET_HEIGHT 30
+#define QUEUE_SIZE 1000
+#define ENEMY_HITBOX_WIDTH 50
+#define ENEMY_HITBOX_HEIGHT 50
+#define MAX_XP_PEBBLES 100
+#define COLLECTION_RADIUS 50
+
+int BULLET_FIRE_INTERVAL = 300;
+const int WINDOW_WIDTH = 1000;
+const int WINDOW_HEIGHT = 500;
+const int SPAWN_INTERVAL = 5000;
+int enemyCount = 5;
+Uint32 lastSpawnTime = 0;
+bool isGamePaused = false;
+Uint32 lastBulletTime = 0;
+int BULLET_SPEED = 10;
+bool isGameRunning = false;
+char playerName[50] = "";
+bool capturingName = false;
+bool isNameCaptured = false;
+Uint32 lastDamageTime = 0;
+bool isPlayerDead = false;
+Uint32 startTime;
+Uint32 timeAlive;
+int enemiesEliminated = 0;
+Uint32 lastIncreaseTime = 0;
+int MAX_ENEMIES = 10;
+int PLAYER_HITBOX_WIDTH = 50;
+int PLAYER_HITBOX_HEIGHT = 50;
+
+SDL_Texture* muroTexture;
+SDL_Texture* arbolATexture;
+SDL_Texture* arbolBTexture;
+SDL_Texture* arbolCTexture;
+SDL_Texture* arbolDTexture;
+SDL_Texture* arbolETexture;
+SDL_Texture* arbolFTexture;
+SDL_Texture* vacioTexture;
+SDL_Texture* fogataTexture;
+SDL_Texture* healthTexture[5];
+SDL_Texture* healTexture[4];
+SDL_Texture* playerLeftFrames[6];
+SDL_Texture* playerRightFrames[6];
+SDL_Texture* playerDownFrames[6];
+SDL_Texture* playerUpFrames[6];
+SDL_Texture* playerIdleLeft[2];
+SDL_Texture* playerIdleRight[2];
+SDL_Texture* playerIdleDown[2];
+SDL_Texture* playerIdleUp[2];
+SDL_Texture* bulletTexture;
+SDL_Texture* enemyTexture;
+SDL_Texture* jarronTexture;
+SDL_Texture* xpPebbleTexture;
+SDL_Texture* caminoGTexture;
+SDL_Texture* caminoITexture;
+SDL_Texture* caminoJTexture;
+SDL_Texture* caminoKTexture;
+SDL_Texture* caminoLTexture;
+SDL_Texture* caminoOTexture;
+SDL_Texture* caminoPTexture;
+SDL_Texture* xpBarBackgroundTexture;
+SDL_Texture* weaponTexture1;
+SDL_Texture* weaponTexture2;
+SDL_Texture* weaponTexture3;
+SDL_Texture* playButtonTexture;
+SDL_Texture* scoresButtonTexture;
+SDL_Texture* exitButtonTexture;
+SDL_Texture* skullTexture;
+SDL_Texture* returnToMenuButtonTexture;
+SDL_Texture* backgroundMenuTexture;
+SDL_Texture* cartelUTexture;
+SDL_Texture* cartelRTexture;
+SDL_Texture* cartelDTexture;
+SDL_Texture* backButtonTexture;
+
+
+
+typedef struct {
+    int x, y;
+    int Pheigth, Pwidth;
+    SDL_Texture* texture;
+    int HP;
+    int currentFrame;
+    int speed;
+    Uint32 lastFrameTime;
+    bool movingLeft;
+    bool movingRight;
+    bool movingUp;
+    bool movingDown;
+} Jugador;
+
+typedef struct {
+    int x, y;
+    float dirX, dirY;
+    int width, height;
+    int speed;
+    bool active;
+    SDL_Texture* texture;
+} Bullet;
+
+typedef struct {
+    int x, y;
+    int width, height;
+    int HP;
+    int speed;
+    SDL_Texture* texture;
+    Uint32 lastMoveTime;
+//    int lastX, lastY;
+    int currentFrame;
+    Uint32 lastFrameTime;
+} Enemy;
+
+typedef struct {
+    int xp;
+    int level;
+    int xpForNextLevel;
+} XPSystem;
+
+typedef struct {
+    int x, y;
+    int width, height;
+    bool active;
+    SDL_Texture* texture;
+} XPPebble;
+
+typedef struct {
+    const char* name;
+    SDL_Texture* texture;
+    void (*effect)(Jugador* player);
+} Option;
+
+typedef enum {
+    STATE_MENU,
+    STATE_CAPTURING_NAME,
+    STATE_PLAYING,
+    STATE_SCORES,
+    STATE_EXIT,
+    STATE_DEATH
+} GameState;
+
+typedef struct {
+    char nombre[50];
+    int tiempo;
+    int enemigosEliminados;
+} RankingEntry;
+
+
+GameState gameState = STATE_MENU;
+
+Option options[3];
+
+XPPebble xpPebbles[MAX_XP_PEBBLES];
+
+SDL_Texture* enemyFrames[4];
+Enemy* enemies;
+
+SDL_Texture* LoadTexture(const char* filePath, SDL_Renderer* renderer);
+char** inicializarMapa(int filas, int columnas);
+void leerMapaDesdeArchivo(char** mapa, const char* rutaArchivo, int filas, int columnas);
+SDL_Texture* GetTextureForTile(char tile, int healState);
+void RenderMap(char** mapa, int filas, int columnas, SDL_Renderer* renderer, int camX, int camY, int healState);
+bool canMove(int x, int y, int width, int height, char** mapa, int filas, int columnas);
+bool canMoveEnemy(int x, int y, int width, int height, char** mapa, int filas, int columnas);
+void LoadHealthTextures(SDL_Renderer* renderer);
+void RenderHealth(SDL_Renderer* renderer, int health);
+bool isOnFireTile(Jugador player, char** mapa);
+void LoadHealTextures(SDL_Renderer* renderer);
+bool isOnHealTile(Jugador player, char** mapa);
+void LoadPlayerMoving(SDL_Renderer* renderer);
+void UpdateCharacterAnimation(Jugador* player, Uint32 currentTime);
+void RenderPlayer(Jugador player, SDL_Renderer* renderer, int camX, int camY);
+void LoadBulletTexture(SDL_Renderer* renderer);
+void LoadEnemyTexture(SDL_Renderer* renderer);
+void ShootBullet(Jugador player, Bullet* bullets, int maxBullets, int mouseX, int mouseY);
+void UpdateBullets(Bullet* bullets, int maxBullets, char** mapa, int filas, int columnas, Enemy* enemies, int maxEnemies);
+void RenderBullets(Bullet* bullets, int maxBullets, SDL_Renderer* renderer, int camX, int camY);
+bool CheckBulletCollision(Bullet bullet, char** mapa, int filas, int columnas);
+bool CheckEnemyBulletCollision(Bullet* bullet, Enemy* enemy);
+void RenderEnemy(Enemy enemy, SDL_Renderer* renderer, int camX, int camY);
+void MoveEnemyTowardsPlayer(Enemy* enemy, Jugador player, int maxX, int maxY);
+bool isInView(int x, int y, int playerX, int playerY, int windowWidth, int windowHeight);
+void spawnEnemies(Enemy* enemies, int maxEnemies, int playerX, int playerY, int windowWidth, int windowHeight, SDL_Texture* enemyTexture, char** mapa, int filas, int columnas);
+void updateEnemyCount(Uint32 currentTime);
+void RenderXPBar(XPSystem xpSystem, SDL_Renderer* renderer);
+void CollectXP(XPSystem* xpSystem, int amount, SDL_Renderer* renderer, Jugador* player);
+void PauseGame(void);
+void ResumeGame(void);
+void ShowWeaponMenu(SDL_Renderer* renderer, Jugador* player);
+void PauseGameAndShowWeaponMenu(SDL_Renderer* renderer, Jugador* player);
+void RenderXPPebbles(XPPebble* xpPebbles, int maxPebbles, SDL_Renderer* renderer, int camX, int camY);
+void DropXPPebble(int x, int y);
+void EnemyDeathLogic(Enemy* enemy);
+void CollectXPPebbles(Jugador* player, XPPebble* xpPebbles, int maxPebbles, XPSystem* xpSystem, SDL_Renderer* renderer);
+void UpdateEnemies(Enemy* enemies, int maxEnemies, Jugador player, char** mapa, int filas, int columnas, int** costMap);
+void InitializeXPPebbles(void);
+void LoadXPBarBackgroundTexture(SDL_Renderer* renderer);
+bool CheckCollision(int x1, int y1, int w1, int h1, int x2, int y2, int w2, int h2);
+void InitializeCostMap(int** costMap, int filas, int columnas);
+void PropagateWave(int** costMap, char** mapa, int filas, int columnas, int startX, int startY);
+void LoadWeaponTextures(SDL_Renderer* renderer);
+void LoadOptionTextures(SDL_Renderer* renderer);
+void IncreasePlayerSpeed(Jugador* player);
+void IncreaseBulletSpeed(Jugador* player);
+void ShowWIPMessage(Jugador* player);
+void HandleCollisions(Jugador* player, Enemy* enemies, int maxEnemies, int maxX, int maxY);
+void LoadMenuTextures(SDL_Renderer* renderer);
+void RenderMenu(SDL_Renderer* renderer);
+void HandleMenuEvents(SDL_Event* event, SDL_Renderer* renderer);
+void CapturePlayerName(SDL_Renderer* renderer);
+void SavePlayerName(const char* playerName);
+void LoadDeathScreenTextures(SDL_Renderer* renderer);
+void HandlePlayerDamage(Jugador* player, Enemy* enemies, int maxEnemies);
+void RenderDeathScreen(SDL_Renderer* renderer, SDL_Texture* backgroundTexture, char** mapa, int filas, int columnas, int camX, int camY, int healState, Jugador player, XPPebble* xpPebbles, XPSystem xpSystem, Enemy* enemies, int maxEnemies, Bullet* bullets, int maxBullets);
+void HandleDeathScreenEvents(SDL_Event* event, Jugador* player, Enemy* enemies, Bullet* bullets, XPPebble* xpPebbles, XPSystem* xpSystem, int mapWidth, int mapHeight, int maxBullets, bool* mouseButtonDown);
+void ResetGame(Jugador* player, Enemy* enemies, Bullet* bullets, XPPebble* xpPebbles, XPSystem* xpSystem, int mapWidth, int mapHeight, int maxBullets, bool* mouseButtonDown);
+void LoadBackgroundMenuTexture(SDL_Renderer* renderer);
+void LoadEnemyFrames(SDL_Renderer* renderer);
+void UpdateEnemyAnimation(Enemy* enemy, Uint32 currentTime);
+void StartGame(void);
+void HandlePlayerDeath(Jugador* player);
+void SaveRankingEntry(const char* playerName, Uint32 timeAlive, int enemiesEliminated);
+void RenderScores(SDL_Renderer* renderer);
+void LoadBackButtonTexture(SDL_Renderer* renderer);
+void HandleScoresEvents(SDL_Event* event);
+void ReallocateEnemies(Enemy** enemies, int newSize);
+float CalculateDistance(int x1, int y1, int x2, int y2);
+bool CheckRectCollision(int x1, int y1, int w1, int h1, int x2, int y2, int w2, int h2);
+
+//agregarfunciones
+
+int main(int argc, char* argv[]) {
+    int filas = 25;
+    int columnas = 49;
+    int healState = 0;
+    char** mapa = inicializarMapa(filas, columnas);
+    const int maxBullets = 10000;
+    const Uint8 *state = SDL_GetKeyboardState(NULL);
+    int running = 1;
+    int camX = 0, camY = 0;
+    int mapWidth = columnas * TILE_SIZE;
+    int mapHeight = filas * TILE_SIZE;
+
+    // Declarar e inicializar costMap
+    int** costMap = malloc(filas * sizeof(int*));
+    for (int i = 0; i < filas; i++) {
+        costMap[i] = malloc(columnas * sizeof(int));
+    }
+
+    if (SDL_Init(SDL_INIT_VIDEO) < 0) {
+        printf("SDL no pudo inicializar: %s\n", SDL_GetError());
+        return -1;
+    }
+    if (!(IMG_Init(IMG_INIT_PNG) & IMG_INIT_PNG)) {
+        printf("SDL_image no pudo inicializar: %s\n", IMG_GetError());
+        SDL_Quit();
+        return -1;
+    }
+
+    if (TTF_Init() == -1) {
+        printf("SDL_ttf no pudo inicializar: %s\n", TTF_GetError());
+        SDL_Quit();
+        return -1;
+    }
+
+    SDL_Window* window = SDL_CreateWindow("Juego", SDL_WINDOWPOS_CENTERED, SDL_WINDOWPOS_CENTERED, WINDOW_WIDTH, WINDOW_HEIGHT, 0);
+    if (!window) {
+        printf("Error al crear la ventana: %s\n", SDL_GetError());
+        SDL_Quit();
+        return -1;
+    }
+
+    SDL_Renderer* renderer = SDL_CreateRenderer(window, -1, SDL_RENDERER_ACCELERATED);
+    if (!renderer) {
+        printf("Error al crear el renderer: %s\n", SDL_GetError());
+        SDL_DestroyWindow(window);
+        SDL_Quit();
+        return -1;
+    }
+
+    muroTexture = LoadTexture("/Users/miguel/Documents/ArchivosJuego/muro.png", renderer);
+    arbolATexture = LoadTexture("/Users/miguel/Documents/ArchivosJuego/arbol/arbolA.png", renderer);
+    arbolBTexture = LoadTexture("/Users/miguel/Documents/ArchivosJuego/arbol/arbolB.png", renderer);
+    arbolCTexture = LoadTexture("/Users/miguel/Documents/ArchivosJuego/arbol/arbolC.png", renderer);
+    arbolDTexture = LoadTexture("/Users/miguel/Documents/ArchivosJuego/arbol/arbolD.png", renderer);
+    arbolETexture = LoadTexture("/Users/miguel/Documents/ArchivosJuego/arbol/arbolE.png", renderer);
+    arbolFTexture = LoadTexture("/Users/miguel/Documents/ArchivosJuego/arbol/arbolF.png", renderer);
+    caminoGTexture = LoadTexture("/Users/miguel/Documents/ArchivosJuego/camino/caminoG.png", renderer);
+    caminoITexture = LoadTexture("/Users/miguel/Documents/ArchivosJuego/camino/caminoI.png", renderer);
+    caminoJTexture = LoadTexture("/Users/miguel/Documents/ArchivosJuego/camino/caminoJ.png", renderer);
+    caminoKTexture = LoadTexture("/Users/miguel/Documents/ArchivosJuego/camino/caminoK.png", renderer);
+    caminoLTexture = LoadTexture("/Users/miguel/Documents/ArchivosJuego/camino/caminoL.png", renderer);
+    caminoOTexture = LoadTexture("/Users/miguel/Documents/ArchivosJuego/camino/caminoO.png", renderer);
+    caminoPTexture = LoadTexture("/Users/miguel/Documents/ArchivosJuego/camino/caminoP.png", renderer);
+    jarronTexture = LoadTexture("/Users/miguel/Documents/ArchivosJuego/jarron.png", renderer);
+    vacioTexture = LoadTexture("/Users/miguel/Documents/ArchivosJuego/vacio.png", renderer);
+    fogataTexture = LoadTexture("/Users/miguel/Documents/ArchivosJuego/fogata.png", renderer);
+    xpPebbleTexture = LoadTexture("/Users/miguel/Documents/ArchivosJuego/xppebble.png", renderer);
+    cartelDTexture = LoadTexture("/Users/miguel/Documents/ArchivosJuego/cartel/cartelD.png", renderer);
+    cartelRTexture = LoadTexture("/Users/miguel/Documents/ArchivosJuego/cartel/cartelR.png", renderer);
+    cartelUTexture= LoadTexture("/Users/miguel/Documents/ArchivosJuego/cartel/cartelU.png", renderer);
+
+    leerMapaDesdeArchivo(mapa, "/Users/miguel/Documents/ArchivosJuego/mapa.txt", filas, columnas);
+
+    LoadHealthTextures(renderer);
+    LoadHealTextures(renderer);
+    LoadPlayerMoving(renderer);
+    LoadBulletTexture(renderer);
+    LoadEnemyTexture(renderer);
+    InitializeXPPebbles();
+    LoadDeathScreenTextures(renderer);
+    LoadBackButtonTexture(renderer);
+
+    Jugador player = {
+        (mapWidth / 2) - (PLAYER_WIDTH / 2),
+        (mapHeight / 2) - (PLAYER_HEIGHT / 2),
+        TILE_SIZE,
+        TILE_SIZE,
+        playerIdleLeft[0],
+        4,
+        0,
+        3,
+        SDL_GetTicks(),
+        false,
+        false,
+        false,
+        false
+    };
+
+    XPSystem xpSystem = {0, 1, 50};
+    
+    enemies = (Enemy*)malloc(MAX_ENEMIES * sizeof(Enemy));
+    if (enemies == NULL) {
+        printf("Error al asignar memoria para los enemigos.\n");
+        SDL_Quit();
+        return -1;
+    }
+
+    Bullet bullets[maxBullets];
+    for (int i = 0; i < maxBullets; ++i) {
+        bullets[i].active = false;
+    }
+    
+    for (int i = 0; i < MAX_ENEMIES; ++i) {
+        enemies[i].lastMoveTime = SDL_GetTicks();
+    }
+    SDL_Texture* backgroundTexture = LoadTexture("/Users/miguel/Documents/ArchivosJuego/fondo.png", renderer);
+    if (!backgroundTexture) {
+        SDL_DestroyTexture(player.texture);
+        SDL_DestroyRenderer(renderer);
+        SDL_DestroyWindow(window);
+        SDL_Quit();
+        return -1;
+    }
+
+    Uint32 lastTime = SDL_GetTicks();
+    bool mouseButtonDown = false;
+    LoadWeaponTextures(renderer);
+    LoadOptionTextures(renderer);
+    LoadEnemyFrames(renderer);
+    LoadBackgroundMenuTexture(renderer);
+    LoadMenuTextures(renderer);
+
+    
+
+
+    while (running) {
+        SDL_Event event;
+        while (SDL_PollEvent(&event)) {
+            if (event.type == SDL_QUIT) {
+                running = 0;
+            }
+            if (gameState == STATE_MENU) {
+                HandleMenuEvents(&event, renderer);
+            } else if (gameState == STATE_PLAYING && !isNameCaptured) {
+                CapturePlayerName(renderer);
+            } else if (gameState == STATE_PLAYING && isNameCaptured) {
+                if (event.type == SDL_MOUSEBUTTONDOWN && event.button.button == SDL_BUTTON_LEFT) {
+                    mouseButtonDown = true;
+                }
+                if (event.type == SDL_MOUSEBUTTONUP && event.button.button == SDL_BUTTON_LEFT) {
+                    mouseButtonDown = false;
+                }
+            } else if (gameState == STATE_DEATH) {
+                HandleDeathScreenEvents(&event, &player, enemies, bullets, xpPebbles, &xpSystem, mapWidth, mapHeight, maxBullets, &mouseButtonDown);
+            } else if (gameState == STATE_SCORES) {
+                HandleScoresEvents(&event);
+            }
+        }
+
+        Uint32 currentTime = SDL_GetTicks();
+
+        if (gameState == STATE_PLAYING && isNameCaptured) {
+            if (mouseButtonDown && (currentTime - lastBulletTime >= BULLET_FIRE_INTERVAL)) {
+                int mouseX, mouseY;
+                SDL_GetMouseState(&mouseX, &mouseY);
+                ShootBullet(player, bullets, maxBullets, mouseX + camX, mouseY + camY);
+                lastBulletTime = currentTime;
+            }
+
+            if (currentTime - lastTime >= 1000) {
+                lastTime = currentTime;
+
+                if (isOnFireTile(player, mapa)) {
+                    player.HP -= 1;
+                }
+
+                if (isOnHealTile(player, mapa) && player.HP < 4) {
+                    player.HP += 1;
+                    healState = (healState + 1) % 4;
+                }
+            }
+
+            if (state[SDL_SCANCODE_W] && canMove(player.x, player.y - player.speed, PLAYER_WIDTH, PLAYER_HEIGHT, mapa, filas, columnas)) player.y -= player.speed;
+            if (state[SDL_SCANCODE_S] && canMove(player.x, player.y + player.speed, PLAYER_WIDTH, PLAYER_HEIGHT, mapa, filas, columnas)) player.y += player.speed;
+            if (state[SDL_SCANCODE_A] && canMove(player.x - player.speed, player.y, PLAYER_WIDTH, PLAYER_HEIGHT, mapa, filas, columnas)) player.x -= player.speed;
+            if (state[SDL_SCANCODE_D] && canMove(player.x + player.speed, player.y, PLAYER_WIDTH, PLAYER_HEIGHT, mapa, filas, columnas)) player.x += player.speed;
+
+            camX = player.x - WINDOW_WIDTH / 2 + TILE_SIZE / 2;
+            camY = player.y - WINDOW_HEIGHT / 2 + TILE_SIZE / 2;
+            camX = fmax(0, fmin(camX, columnas * TILE_SIZE - WINDOW_WIDTH));
+            camY = fmax(0, fmin(camY, filas * TILE_SIZE - WINDOW_HEIGHT));
+
+            player.movingLeft = state[SDL_SCANCODE_A];
+            player.movingUp = state[SDL_SCANCODE_W];
+            player.movingRight = state[SDL_SCANCODE_D];
+            player.movingDown = state[SDL_SCANCODE_S];
+
+            updateEnemyCount(currentTime);
+            spawnEnemies(enemies, MAX_ENEMIES, player.x, player.y, WINDOW_WIDTH, WINDOW_HEIGHT, enemyTexture, mapa, filas, columnas);
+
+            InitializeCostMap(costMap, filas, columnas);
+            PropagateWave(costMap, mapa, filas, columnas, player.x / TILE_SIZE, player.y / TILE_SIZE);
+            
+            for (int i = 0; i < MAX_ENEMIES; i++) {
+                          if (enemies[i].HP > 0) {
+                              UpdateEnemyAnimation(&enemies[i], currentTime);
+                              RenderEnemy(enemies[i], renderer, 0, 0);
+                          }
+                      }
+
+            for (int i = 0; i < MAX_ENEMIES; i++) {
+                if (enemies[i].HP > 0) {
+                    MoveEnemyTowardsPlayer(&enemies[i], player, columnas * TILE_SIZE, filas * TILE_SIZE);
+                }
+            }
+
+            HandleCollisions(&player, enemies, MAX_ENEMIES, columnas * TILE_SIZE, filas * TILE_SIZE);
+
+            UpdateEnemies(enemies, MAX_ENEMIES, player, mapa, filas, columnas, costMap);
+
+            CollectXPPebbles(&player, xpPebbles, MAX_XP_PEBBLES, &xpSystem, renderer);
+            UpdateCharacterAnimation(&player, currentTime);
+            UpdateBullets(bullets, maxBullets, mapa, filas, columnas, enemies, MAX_ENEMIES);
+
+            HandlePlayerDamage(&player, enemies, MAX_ENEMIES);
+
+            SDL_RenderClear(renderer);
+            SDL_RenderCopy(renderer, backgroundTexture, NULL, NULL);
+            RenderMap(mapa, filas, columnas, renderer, camX, camY, healState);
+            RenderPlayer(player, renderer, camX, camY);
+            RenderXPPebbles(xpPebbles, MAX_XP_PEBBLES, renderer, camX, camY);
+            RenderXPBar(xpSystem, renderer);
+
+            for (int i = 0; i < MAX_ENEMIES; i++) {
+                RenderEnemy(enemies[i], renderer, camX, camY);
+            }
+
+            RenderBullets(bullets, maxBullets, renderer, camX, camY);
+            RenderHealth(renderer, player.HP);
+
+            SDL_RenderPresent(renderer);
+            SDL_Delay(16);
+        } else if (gameState == STATE_MENU) {
+            SDL_RenderClear(renderer);
+            RenderMenu(renderer);
+            SDL_RenderPresent(renderer);
+            SDL_Delay(16);
+        } else if (gameState == STATE_DEATH) {
+            RenderDeathScreen(renderer, backgroundTexture, mapa, filas, columnas, camX, camY, healState, player, xpPebbles, xpSystem, enemies, MAX_ENEMIES, bullets, maxBullets);
+            SDL_Delay(16);
+        } else if (gameState == STATE_SCORES) {
+            RenderScores(renderer);
+            SDL_Delay(16);
+        } else if (gameState == STATE_EXIT) {
+            running = 0;
+        }
+    }
+
+    for (int i = 0; i < filas; i++) {
+        free(costMap[i]);
+    }
+    free(costMap);
+
+    for (int i = 0; i < filas; i++) {
+        free(mapa[i]);
+    }
+    free(mapa);
+    free(enemies);
+
+    SDL_DestroyTexture(muroTexture);
+    SDL_DestroyTexture(arbolATexture);
+    SDL_DestroyTexture(arbolBTexture);
+    SDL_DestroyTexture(arbolCTexture);
+    SDL_DestroyTexture(arbolDTexture);
+    SDL_DestroyTexture(arbolETexture);
+    SDL_DestroyTexture(arbolFTexture);
+    SDL_DestroyTexture(vacioTexture);
+    SDL_DestroyTexture(backgroundTexture);
+    SDL_DestroyTexture(player.texture);
+    SDL_DestroyTexture(enemyTexture);
+    SDL_DestroyTexture(backgroundMenuTexture);
+    SDL_DestroyTexture(playButtonTexture);
+    SDL_DestroyTexture(scoresButtonTexture);
+    SDL_DestroyTexture(exitButtonTexture);
+    SDL_DestroyTexture(skullTexture);
+    SDL_DestroyTexture(returnToMenuButtonTexture);
+    for (int i = 0; i < 5; i++) {
+        SDL_DestroyTexture(healthTexture[i]);
+    }
+    SDL_DestroyTexture(bulletTexture);
+    SDL_DestroyRenderer(renderer);
+    SDL_DestroyWindow(window);
+    IMG_Quit();
+    TTF_Quit();
+    SDL_Quit();
+
+    return 0;
+}
+
+
+
+SDL_Texture* LoadTexture(const char* filePath, SDL_Renderer* renderer) {
+    SDL_Surface* surface = IMG_Load(filePath);
+    if (!surface) {
+        printf("Error al cargar la imagen: %s\n", IMG_GetError());
+        return NULL;
+    }
+    SDL_Texture* texture = SDL_CreateTextureFromSurface(renderer, surface);
+    SDL_FreeSurface(surface);
+    return texture;
+}
+
+char** inicializarMapa(int filas, int columnas) {
+    char** mapa = (char**)malloc(filas * sizeof(char*));
+    for (int i = 0; i < filas; i++) {
+        mapa[i] = (char*)malloc(columnas * sizeof(char));
+        for (int j = 0; j < columnas; j++) {
+            mapa[i][j] = 'v';
+        }
+    }
+    return mapa;
+}
+
+void leerMapaDesdeArchivo(char** mapa, const char* rutaArchivo, int filas, int columnas) {
+    FILE* archivo = fopen(rutaArchivo, "r");
+    if (archivo == NULL) {
+        perror("Error al abrir el archivo");
+        return;
+    }
+
+    for (int i = 0; i < filas; i++) {
+        for (int j = 0; j < columnas; j++) {
+            do {
+                fscanf(archivo, "%c", &mapa[i][j]);
+            } while (mapa[i][j] == ' ' || mapa[i][j] == '\n');
+        }
+    }
+
+    fclose(archivo);
+}
+
+SDL_Texture* GetTextureForTile(char tile, int healState) {
+    switch (tile) {
+        case 'a': return arbolATexture;
+        case 'b': return arbolBTexture;
+        case 'c': return arbolCTexture;
+        case 'd': return arbolDTexture;
+        case 'e': return arbolETexture;
+        case 'f': return arbolFTexture;
+        case 'g': return caminoGTexture;
+        case 'h': return healTexture[0];
+            
+        case 'i': return caminoITexture;
+        case 'j': return caminoJTexture;
+        case 'k': return caminoKTexture;
+        case 'l': return caminoLTexture;
+            
+        case 'm': return muroTexture;
+            /*n
+              ñ*/
+            
+        case 'o': return caminoOTexture;
+        case 'p': return caminoPTexture;
+            
+        case 'q': return jarronTexture;
+            
+        case 'r': return cartelUTexture;
+        case 's': return cartelRTexture;
+        case 't': return cartelDTexture;
+            
+        case 'v': return vacioTexture;
+        case 'x': return fogataTexture;
+            /*y*/
+        case 'z': return vacioTexture;;
+        default: return NULL;
+    }
+}
+
+void RenderMap(char** mapa, int filas, int columnas, SDL_Renderer* renderer, int camX, int camY, int healState) {
+    for (int i = 0; i < filas; i++) {
+        for (int j = 0; j < columnas; j++) {
+            SDL_Texture* texture = GetTextureForTile(mapa[i][j], healState);
+            if (texture) {
+                SDL_Rect dstRect;
+                if (mapa[i][j] == 'h') {
+                    dstRect = (SDL_Rect){j * TILE_SIZE - camX, i * TILE_SIZE - camY, TILE_SIZE, TILE_SIZE};  // Ajusta el tamaño si es necesario
+                } else {
+                    dstRect = (SDL_Rect){j * TILE_SIZE - camX, i * TILE_SIZE - camY, TILE_SIZE, TILE_SIZE};
+                }
+                SDL_RenderCopy(renderer, texture, NULL, &dstRect);
+            }
+        }
+    }
+}
+
+
+bool canMove(int x, int y, int width, int height, char** mapa, int filas, int columnas) {
+    int hitboxX1 = x + (PLAYER_WIDTH - HITBOX_WIDTH) / 2;
+    int hitboxY1 = y + (PLAYER_HEIGHT - HITBOX_HEIGHT) / 2;
+    int hitboxX2 = hitboxX1 + HITBOX_WIDTH - 1;
+    int hitboxY2 = hitboxY1 + HITBOX_HEIGHT - 1;
+
+    // Verificar esquinas
+    int corners[4][2] = {
+        {hitboxX1, hitboxY1},
+        {hitboxX2, hitboxY1},
+        {hitboxX1, hitboxY2},
+        {hitboxX2, hitboxY2}
+    };
+
+    for (int i = 0; i < 4; ++i) {
+        int tileX = corners[i][0] / TILE_SIZE;
+        int tileY = corners[i][1] / TILE_SIZE;
+
+        if (tileX < 0 || tileX >= columnas || tileY < 0 || tileY >= filas) {
+            return false;
+        }
+
+        char tile = mapa[tileY][tileX];
+        if (tile != 'v' && tile != 'r' && tile != 'f' && tile != 'h' && tile != 'e' && tile != 'x'
+            && tile != 'g' && tile != 'i' && tile != 'j' && tile != 'k' && tile != 'l' && tile != 'o' && tile != 'p') {
+            return false;
+        }
+    }
+
+    for (int i = hitboxX1; i <= hitboxX2; ++i) {
+        // Borde superior
+        int tileX = i / TILE_SIZE;
+        int tileY = hitboxY1 / TILE_SIZE;
+        if (tileX < 0 || tileX >= columnas || tileY < 0 || tileY >= filas) {
+            return false;
+        }
+        if (mapa[tileY][tileX] != 'v' && mapa[tileY][tileX] != 'r' && mapa[tileY][tileX] != 'f'
+            && mapa[tileY][tileX] != 'h' && mapa[tileY][tileX] != 'e' && mapa[tileY][tileX] != 'x'
+            && mapa[tileY][tileX] != 'g' && mapa[tileY][tileX] != 'i' && mapa[tileY][tileX] != 'j'
+            && mapa[tileY][tileX] != 'k' && mapa[tileY][tileX] != 'l' && mapa[tileY][tileX] != 'o'
+            && mapa[tileY][tileX] != 'p') {
+            return false;
+        }
+
+        // Borde inferior
+        tileY = hitboxY2 / TILE_SIZE;
+        if (tileX < 0 || tileX >= columnas || tileY < 0 || tileY >= filas) {
+            return false;
+        }
+        if (mapa[tileY][tileX] != 'v' && mapa[tileY][tileX] != 'r' && mapa[tileY][tileX] != 'f'
+            && mapa[tileY][tileX] != 'h' && mapa[tileY][tileX] != 'e' && mapa[tileY][tileX] != 'x'
+            && mapa[tileY][tileX] != 'g' && mapa[tileY][tileX] != 'i' && mapa[tileY][tileX] != 'j'
+            && mapa[tileY][tileX] != 'k' && mapa[tileY][tileX] != 'l' && mapa[tileY][tileX] != 'o'
+            && mapa[tileY][tileX] != 'p') {
+            return false;
+        }
+    }
+
+    for (int i = hitboxY1; i <= hitboxY2; ++i) {
+        // Borde izquierdo
+        int tileX = hitboxX1 / TILE_SIZE;
+        int tileY = i / TILE_SIZE;
+        if (tileX < 0 || tileX >= columnas || tileY < 0 || tileY >= filas) {
+            return false;
+        }
+        if (mapa[tileY][tileX] != 'v' && mapa[tileY][tileX] != 'r' && mapa[tileY][tileX] != 'f'
+            && mapa[tileY][tileX] != 'h' && mapa[tileY][tileX] != 'e' && mapa[tileY][tileX] != 'x'
+            && mapa[tileY][tileX] != 'g' && mapa[tileY][tileX] != 'i' && mapa[tileY][tileX] != 'j'
+            && mapa[tileY][tileX] != 'k' && mapa[tileY][tileX] != 'l' && mapa[tileY][tileX] != 'o'
+            && mapa[tileY][tileX] != 'p') {
+            return false;
+        }
+
+        // Borde derecho
+        tileX = hitboxX2 / TILE_SIZE;
+        if (tileX < 0 || tileX >= columnas || tileY < 0 || tileY >= filas) {
+            return false;
+        }
+        if (mapa[tileY][tileX] != 'v' && mapa[tileY][tileX] != 'r' && mapa[tileY][tileX] != 'f'
+            && mapa[tileY][tileX] != 'h' && mapa[tileY][tileX] != 'e' && mapa[tileY][tileX] != 'x'
+            && mapa[tileY][tileX] != 'g' && mapa[tileY][tileX] != 'i' && mapa[tileY][tileX] != 'j'
+            && mapa[tileY][tileX] != 'k' && mapa[tileY][tileX] != 'l' && mapa[tileY][tileX] != 'o'
+            && mapa[tileY][tileX] != 'p') {
+            return false;
+        }
+    }
+
+    return true;
+}
+
+bool canMoveEnemy(int x, int y, int width, int height, char** mapa, int filas, int columnas) {
+    int hitboxX1 = x;
+    int hitboxY1 = y;
+    int hitboxX2 = hitboxX1 + ENEMY_HITBOX_WIDTH - 1;
+    int hitboxY2 = hitboxY1 + ENEMY_HITBOX_HEIGHT - 1;
+
+    int centerX = (hitboxX1 + hitboxX2) / 2;
+    int centerY = (hitboxY1 + hitboxY2) / 2;
+    int midX1 = (hitboxX1 + centerX) / 2;
+    int midY1 = (hitboxY1 + centerY) / 2;
+    int midX2 = (centerX + hitboxX2) / 2;
+    int midY2 = (centerY + hitboxY2) / 2;
+
+    int tiles[9][2] = {
+        {hitboxX1 / TILE_SIZE, hitboxY1 / TILE_SIZE},
+        {hitboxX2 / TILE_SIZE, hitboxY1 / TILE_SIZE},
+        {hitboxX1 / TILE_SIZE, hitboxY2 / TILE_SIZE},
+        {hitboxX2 / TILE_SIZE, hitboxY2 / TILE_SIZE},
+        {centerX / TILE_SIZE, centerY / TILE_SIZE},
+        {midX1 / TILE_SIZE, midY1 / TILE_SIZE},
+        {midX2 / TILE_SIZE, midY1 / TILE_SIZE},
+        {midX1 / TILE_SIZE, midY2 / TILE_SIZE},
+        {midX2 / TILE_SIZE, midY2 / TILE_SIZE}
+    };
+
+    for (int i = 0; i < 9; ++i) {
+        if (tiles[i][0] < 0 || tiles[i][0] >= columnas || tiles[i][1] < 0 || tiles[i][1] >= filas) {
+            return false;
+        }
+    }
+
+    for (int i = 0; i < 9; ++i) {
+        char tile = mapa[tiles[i][1]][tiles[i][0]];
+        if (tile != 'v' && tile != 'r' && tile != 'f' && tile != 'h' && tile != 'e' && tile != 'x'
+            && tile != 'g' && tile != 'i' && tile != 'j' && tile != 'k' && tile != 'l' && tile != 'o' && tile != 'p') {
+            return false;
+        }
+    }
+
+    return true;
+}
+
+void LoadHealthTextures(SDL_Renderer* renderer) {
+    char filePath[88];
+    for (int i = 0; i < 5; i++) {
+        sprintf(filePath, "/Users/miguel/Documents/ArchivosJuego/vida/vida%d.png", i);
+        healthTexture[i] = LoadTexture(filePath, renderer);
+    }
+}
+
+void RenderHealth(SDL_Renderer* renderer, int HP) {
+    if (HP < 0) HP = 0;
+    if (HP > 4) HP = 4;
+    SDL_Rect healthRect = {10, -20, 200, 150}; // Ajustar posicion y tamaño
+    SDL_RenderCopy(renderer, healthTexture[HP], NULL, &healthRect);
+}
+
+bool isOnFireTile(Jugador player, char** mapa) {
+    int playerCenterX = player.x + PLAYER_WIDTH / 2;
+    int playerCenterY = player.y + PLAYER_HEIGHT / 2;
+
+    int playerTileX = playerCenterX / TILE_SIZE;
+    int playerTileY = playerCenterY / TILE_SIZE;
+
+    return (mapa[playerTileY][playerTileX] == 'x');
+}
+
+
+void LoadHealTextures(SDL_Renderer* renderer) {
+    healTexture[0] = LoadTexture("/Users/miguel/Documents/ArchivosJuego/heal/heal.png", renderer);
+}
+
+
+bool isOnHealTile(Jugador player, char** mapa) {
+    int playerCenterX = player.x + PLAYER_WIDTH / 2;
+    int playerCenterY = player.y + PLAYER_HEIGHT / 2;
+
+    int playerTileX = playerCenterX / TILE_SIZE;
+    int playerTileY = playerCenterY / TILE_SIZE;
+
+    return (mapa[playerTileY][playerTileX] == 'h');
+}
+
+
+void LoadPlayerMoving(SDL_Renderer* renderer) {
+    playerLeftFrames[0] = LoadTexture("/Users/miguel/Documents/ArchivosJuego/personaje/frameL1.png", renderer);
+    playerLeftFrames[1] = LoadTexture("/Users/miguel/Documents/ArchivosJuego/personaje/frameL2.png", renderer);
+    playerLeftFrames[2] = LoadTexture("/Users/miguel/Documents/ArchivosJuego/personaje/frameL3.png", renderer);
+    playerLeftFrames[3] = LoadTexture("/Users/miguel/Documents/ArchivosJuego/personaje/frameL4.png", renderer);
+    playerLeftFrames[4] = LoadTexture("/Users/miguel/Documents/ArchivosJuego/personaje/frameL5.png", renderer);
+    playerLeftFrames[5] = LoadTexture("/Users/miguel/Documents/ArchivosJuego/personaje/frameL6.png", renderer);
+    
+    playerRightFrames[0] = LoadTexture("/Users/miguel/Documents/ArchivosJuego/personaje/frameR1.png", renderer);
+    playerRightFrames[1] = LoadTexture("/Users/miguel/Documents/ArchivosJuego/personaje/frameR2.png", renderer);
+    playerRightFrames[2] = LoadTexture("/Users/miguel/Documents/ArchivosJuego/personaje/frameR3.png", renderer);
+    playerRightFrames[3] = LoadTexture("/Users/miguel/Documents/ArchivosJuego/personaje/frameR4.png", renderer);
+    playerRightFrames[4] = LoadTexture("/Users/miguel/Documents/ArchivosJuego/personaje/frameR5.png", renderer);
+    playerRightFrames[5] = LoadTexture("/Users/miguel/Documents/ArchivosJuego/personaje/frameR6.png", renderer);
+    
+    playerDownFrames[0] = LoadTexture("/Users/miguel/Documents/ArchivosJuego/personaje/frameD1.png", renderer);
+    playerDownFrames[1] = LoadTexture("/Users/miguel/Documents/ArchivosJuego/personaje/frameD2.png", renderer);
+    playerDownFrames[2] = LoadTexture("/Users/miguel/Documents/ArchivosJuego/personaje/frameD3.png", renderer);
+    playerDownFrames[3] = LoadTexture("/Users/miguel/Documents/ArchivosJuego/personaje/frameD4.png", renderer);
+    playerDownFrames[4] = LoadTexture("/Users/miguel/Documents/ArchivosJuego/personaje/frameD5.png", renderer);
+    playerDownFrames[5] = LoadTexture("/Users/miguel/Documents/ArchivosJuego/personaje/frameD6.png", renderer);
+    
+    playerUpFrames[0] = LoadTexture("/Users/miguel/Documents/ArchivosJuego/personaje/frameU1.png", renderer);
+    playerUpFrames[1] = LoadTexture("/Users/miguel/Documents/ArchivosJuego/personaje/frameU2.png", renderer);
+    playerUpFrames[2] = LoadTexture("/Users/miguel/Documents/ArchivosJuego/personaje/frameU3.png", renderer);
+    playerUpFrames[3] = LoadTexture("/Users/miguel/Documents/ArchivosJuego/personaje/frameU4.png", renderer);
+    playerUpFrames[4] = LoadTexture("/Users/miguel/Documents/ArchivosJuego/personaje/frameU5.png", renderer);
+    playerUpFrames[5] = LoadTexture("/Users/miguel/Documents/ArchivosJuego/personaje/frameU6.png", renderer);
+    
+    playerIdleLeft[0] = LoadTexture("/Users/miguel/Documents/ArchivosJuego/personaje/jugadorL1.png", renderer);
+    playerIdleLeft[1] = LoadTexture("/Users/miguel/Documents/ArchivosJuego/personaje/jugadorL2.png", renderer);
+    
+    playerIdleRight[0] = LoadTexture("/Users/miguel/Documents/ArchivosJuego/personaje/jugadorR1.png", renderer);
+    playerIdleRight[1] = LoadTexture("/Users/miguel/Documents/ArchivosJuego/personaje/jugadorR2.png", renderer);
+    
+    playerIdleDown[0] = LoadTexture("/Users/miguel/Documents/ArchivosJuego/personaje/jugadorD1.png", renderer);
+    playerIdleDown[1] = LoadTexture("/Users/miguel/Documents/ArchivosJuego/personaje/jugadorD2.png", renderer);
+    
+    playerIdleUp[0] = LoadTexture("/Users/miguel/Documents/ArchivosJuego/personaje/jugadorU1.png", renderer);
+    playerIdleUp[1] = LoadTexture("/Users/miguel/Documents/ArchivosJuego/personaje/jugadorU2.png", renderer);
+}
+
+void UpdateCharacterAnimation(Jugador* player, Uint32 currentTime) {
+    if (player->movingLeft) {
+        if (currentTime - player->lastFrameTime >= 200) {  // 200 ms por frame
+            player->currentFrame = (player->currentFrame + 1) % 6;
+            player->lastFrameTime = currentTime;
+        }
+    } else if (player->movingRight) {
+        if (currentTime - player->lastFrameTime >= 200) {  // 200 ms por frame
+            player->currentFrame = (player->currentFrame + 1) % 6;
+            player->lastFrameTime = currentTime;
+        }
+    } else if (player->movingUp) {
+        if (currentTime - player->lastFrameTime >= 200) {  // 200 ms por frame
+            player->currentFrame = (player->currentFrame + 1) % 6;
+            player->lastFrameTime = currentTime;
+        }
+    } else if (player->movingDown) {
+        if (currentTime - player->lastFrameTime >= 200) {  // 200 ms por frame
+            player->currentFrame = (player->currentFrame + 1) % 6;
+            player->lastFrameTime = currentTime;
+        }
+    } else {
+        if (currentTime - player->lastFrameTime >= 200) {  // 200 ms por frame
+            player->currentFrame = (player->currentFrame + 1) % 2;
+            player->lastFrameTime = currentTime;
+        }
+    }
+}
+
+void RenderPlayer(Jugador player, SDL_Renderer* renderer, int camX, int camY) {
+    SDL_Rect playerRect = {player.x - camX, player.y - camY, PLAYER_WIDTH, PLAYER_HEIGHT};
+
+    if (player.movingLeft) {
+        SDL_RenderCopy(renderer, playerLeftFrames[player.currentFrame], NULL, &playerRect);
+    } else if (player.movingRight) {
+        SDL_RenderCopy(renderer, playerRightFrames[player.currentFrame], NULL, &playerRect);
+    } else if (player.movingUp) {
+        SDL_RenderCopy(renderer, playerUpFrames[player.currentFrame], NULL, &playerRect);
+    } else if (player.movingDown) {
+        SDL_RenderCopy(renderer, playerDownFrames[player.currentFrame], NULL, &playerRect);
+    } else {
+        SDL_RenderCopy(renderer, playerIdleLeft[0], NULL, &playerRect);
+    }
+}
+
+void LoadBulletTexture(SDL_Renderer* renderer) {
+    bulletTexture = LoadTexture("/Users/miguel/Documents/ArchivosJuego/bullet.png", renderer);
+}
+
+void LoadEnemyTexture(SDL_Renderer* renderer) {
+    enemyTexture = LoadTexture("/Users/miguel/Documents/ArchivosJuego/enemy.png", renderer);
+}
+
+void ShootBullet(Jugador player, Bullet* bullets, int maxBullets, int mouseX, int mouseY) {
+    for (int i = 0; i < maxBullets; ++i) {
+        if (!bullets[i].active) {
+            bullets[i].x = player.x + PLAYER_WIDTH / 2 - BULLET_WIDTH / 2;
+            bullets[i].y = player.y + PLAYER_HEIGHT / 2 - BULLET_HEIGHT / 2;
+            bullets[i].width = BULLET_WIDTH;
+            bullets[i].height = BULLET_HEIGHT;
+            bullets[i].speed = BULLET_SPEED;
+            bullets[i].active = true;
+            bullets[i].texture = bulletTexture;
+
+            float deltaX = mouseX - bullets[i].x;
+            float deltaY = mouseY - bullets[i].y;
+            float length = sqrt(deltaX * deltaX + deltaY * deltaY);
+            bullets[i].dirX = deltaX / length;
+            bullets[i].dirY = deltaY / length;
+            break;
+        }
+    }
+}
+
+void UpdateBullets(Bullet* bullets, int maxBullets, char** mapa, int filas, int columnas, Enemy* enemies, int maxEnemies) {
+    for (int i = 0; i < maxBullets; ++i) {
+        if (bullets[i].active) {
+            bullets[i].x += bullets[i].dirX * bullets[i].speed;
+            bullets[i].y += bullets[i].dirY * bullets[i].speed;
+
+            if (CheckBulletCollision(bullets[i], mapa, filas, columnas)) {
+                bullets[i].active = false;
+            }
+
+            for (int j = 0; j < maxEnemies; j++) {
+                if (enemies[j].HP > 0 && CheckEnemyBulletCollision(&bullets[i], &enemies[j])) {
+                    bullets[i].active = false;
+                    enemies[j].HP -= 1;
+                    if (enemies[j].HP <= 0) {
+                        enemies[j].HP = 0;
+                        EnemyDeathLogic(&enemies[j]); // Aqui manejo la logicca de muerte del enemigo
+                    }
+                }
+            }
+
+            if (bullets[i].x < 0 || bullets[i].x > columnas * TILE_SIZE || bullets[i].y < 0 || bullets[i].y > filas * TILE_SIZE) {
+                bullets[i].active = false;
+            }
+        }
+    }
+}
+
+void RenderBullets(Bullet* bullets, int maxBullets, SDL_Renderer* renderer, int camX, int camY) {
+    for (int i = 0; i < maxBullets; ++i) {
+        if (bullets[i].active) {
+            SDL_Rect bulletRect = {bullets[i].x - camX, bullets[i].y - camY, bullets[i].width, bullets[i].height};
+            SDL_RenderCopy(renderer, bullets[i].texture, NULL, &bulletRect);
+        }
+    }
+}
+
+bool CheckBulletCollision(Bullet bullet, char** mapa, int filas, int columnas) {
+    int bulletTileX = bullet.x / TILE_SIZE;
+    int bulletTileY = bullet.y / TILE_SIZE;
+
+    if (bulletTileX >= 0 && bulletTileX < columnas && bulletTileY >= 0 && bulletTileY < filas) {
+        if (mapa[bulletTileY][bulletTileX] == 'm' || mapa[bulletTileY][bulletTileX] == 'a' ||
+            mapa[bulletTileY][bulletTileX] == 'b' || mapa[bulletTileY][bulletTileX] == 'c' ||
+            mapa[bulletTileY][bulletTileX] == 'd'|| mapa[bulletTileY][bulletTileX] == 'e'||
+            mapa[bulletTileY][bulletTileX] == 'f') {
+            return true;
+        }
+    }
+    return false;
+}
+
+bool CheckEnemyBulletCollision(Bullet* bullet, Enemy* enemy) {
+    if (bullet->x + bullet->width >= enemy->x &&
+        bullet->x <= enemy->x + enemy->width &&
+        bullet->y + bullet->height >= enemy->y &&
+        bullet->y <= enemy->y + enemy->height) {
+        return true;
+    }
+    return false;
+}
+
+void RenderEnemy(Enemy enemy, SDL_Renderer* renderer, int camX, int camY) {
+    if (enemy.HP > 0) {
+        SDL_Rect enemyRect = {enemy.x - camX, enemy.y - camY, enemy.width, enemy.height};
+        SDL_RenderCopy(renderer, enemyFrames[enemy.currentFrame], NULL, &enemyRect);
+    }
+}
+
+void MoveEnemyTowardsPlayer(Enemy* enemy, Jugador player, int maxX, int maxY) {
+    int playerCenterX = player.x + PLAYER_WIDTH / 2;
+    int playerCenterY = player.y + PLAYER_HEIGHT / 2;
+
+    float deltaX = playerCenterX - enemy->x;
+    float deltaY = playerCenterY - enemy->y;
+    float distance = sqrt(deltaX * deltaX + deltaY * deltaY);
+
+    if (distance > 1.0f) { // Evitar movimientos innecesarios y divisiones por cero
+        int oldX = enemy->x;
+        int oldY = enemy->y;
+
+        enemy->x += (deltaX / distance) * enemy->speed;
+        enemy->y += (deltaY / distance) * enemy->speed;
+
+        if (abs(enemy->x - oldX) > 1 || abs(enemy->y - oldY) > 1) {
+            enemy->lastMoveTime = SDL_GetTicks();
+        }
+
+        // Limitar las coordenadas del enemigo para evitar desbordamientos
+        enemy->x = fmax(0, fmin(enemy->x, maxX));
+        enemy->y = fmax(0, fmin(enemy->y, maxY));
+    }
+}
+
+bool isInView(int x, int y, int playerX, int playerY, int windowWidth, int windowHeight) {
+    return (x >= playerX - windowWidth / 2 && x <= playerX + windowWidth / 2 &&
+            y >= playerY - windowHeight / 2 && y <= playerY + windowHeight / 2);
+}
+
+void spawnEnemies(Enemy* enemies, int maxEnemies, int playerX, int playerY, int windowWidth, int windowHeight, SDL_Texture* enemyTexture, char** mapa, int filas, int columnas) {
+    int spawnPositions[8][2] = {
+        {playerX - windowWidth, playerY - windowHeight},
+        {playerX + windowWidth, playerY - windowHeight},
+        {playerX - windowWidth, playerY + windowHeight},
+        {playerX + windowWidth, playerY + windowHeight},
+        {playerX - windowWidth, playerY},
+        {playerX + windowWidth, playerY},
+        {playerX, playerY - windowHeight},
+        {playerX, playerY + windowHeight}
+    };
+
+    int minSeparation = 50; // Distancia minima entre enemigos
+
+    for (int i = 0; i < maxEnemies; i++) {
+        if (enemies[i].HP <= 0) {
+            bool spawned = false;
+            int attempt = 0;
+            while (!spawned && attempt < 10) { // Intentar hasta 10 veces encontrar una posicion adecuada
+                int positionIndex = rand() % 8;
+                int spawnX = spawnPositions[positionIndex][0] + (rand() % (windowWidth * 2)) - windowWidth;
+                int spawnY = spawnPositions[positionIndex][1] + (rand() % (windowHeight * 2)) - windowHeight;
+
+                if (!isInView(spawnX, spawnY, playerX, playerY, windowWidth, windowHeight) &&
+                    canMove(spawnX, spawnY, TILE_SIZE, TILE_SIZE, mapa, filas, columnas)) {
+                    
+                    bool tooClose = false;
+                    for (int j = 0; j < maxEnemies; ++j) {
+                        if (enemies[j].HP > 0) {
+                            int dx = spawnX - enemies[j].x;
+                            int dy = spawnY - enemies[j].y;
+                            int distanceSquared = dx * dx + dy * dy;
+                            if (distanceSquared < minSeparation * minSeparation) {
+                                tooClose = true;
+                                break;
+                            }
+                        }
+                    }
+
+                    if (!tooClose) {
+                        enemies[i].x = spawnX;
+                        enemies[i].y = spawnY;
+                        enemies[i].width = 75;
+                        enemies[i].height = 75;
+                        enemies[i].HP = 2;
+                        enemies[i].speed = 2;
+                        enemies[i].texture = enemyTexture;
+                        enemies[i].lastMoveTime = SDL_GetTicks();
+                        enemies[i].currentFrame = 0;
+                        enemies[i].lastFrameTime = SDL_GetTicks();
+
+                        spawned = true;
+                    }
+                }
+                attempt++;
+            }
+        }
+    }
+}
+
+void updateEnemyCount(Uint32 currentTime) {
+    if (currentTime - lastSpawnTime >= SPAWN_INTERVAL) {
+        if (enemyCount < MAX_ENEMIES) {
+            enemyCount++;
+        }
+        lastSpawnTime = currentTime;
+    }
+
+    // Incrementar el número máximo de enemigos cada 10 segundos
+    if (currentTime - lastIncreaseTime >= 10000) {
+        int newMaxEnemies = MAX_ENEMIES + 10;
+        ReallocateEnemies(&enemies, newMaxEnemies);
+        MAX_ENEMIES = newMaxEnemies;
+        lastIncreaseTime = currentTime;
+    }
+}
+
+
+
+
+void RenderXPBar(XPSystem xpSystem, SDL_Renderer* renderer) {
+    int barWidth = 200;
+    int barHeight = 20;
+    int xpBarWidth = (xpSystem.xp * barWidth) / xpSystem.xpForNextLevel;
+
+    SDL_Rect xpBarBackgroundRect = {10, 50, barWidth, barHeight}; // Ajusta la posicion segun sea necesario
+    SDL_Rect xpBarForegroundRect = {10, 50, xpBarWidth, barHeight};
+
+    // Dibujar la imagen de fondo
+    SDL_RenderCopy(renderer, xpBarBackgroundTexture, NULL, &xpBarBackgroundRect);
+
+    // Dibujar la barra de XP encima
+    SDL_SetRenderDrawColor(renderer, 0, 255, 0, 255); // Color verde para la XP
+    SDL_RenderFillRect(renderer, &xpBarForegroundRect);
+}
+
+void CollectXP(XPSystem* xpSystem, int amount, SDL_Renderer* renderer, Jugador* player) {
+    xpSystem->xp += amount;
+    if (xpSystem->xp >= xpSystem->xpForNextLevel) {
+        xpSystem->xp -= xpSystem->xpForNextLevel;
+        xpSystem->level++;
+        xpSystem->xpForNextLevel += 50; // Incrementar la XP necesaria para el siguiente nivel
+        PauseGameAndShowWeaponMenu(renderer, player);
+    }
+}
+void PauseGame(void) {
+    isGamePaused = true;
+}
+
+void ResumeGame(void) {
+    isGamePaused = false;
+}
+
+void ShowWeaponMenu(SDL_Renderer* renderer, Jugador* player) {
+    // Mezclar las opciones
+    int running;
+    for (int i = 0; i < 3; i++) {
+        int j = rand() % 3;
+        Option temp = options[i];
+        options[i] = options[j];
+        options[j] = temp;
+    }
+
+    // Renderizar fondo semitransparente
+    SDL_SetRenderDrawColor(renderer, 0, 0, 0, 150); // Negro semitransparente
+    SDL_Rect menuRect = {0, 0, WINDOW_WIDTH, WINDOW_HEIGHT};
+    SDL_RenderFillRect(renderer, &menuRect);
+
+    // Renderizar texto de subida de nivel, CAMBIAR LEVEL UP, muy virgo
+    TTF_Font* font = TTF_OpenFont("/Users/miguel/Documents/ArchivosJuego/font.ttf", 24);
+    SDL_Color textColor = {255, 255, 255, 255}; // Color blanco
+    SDL_Surface* textSurface = TTF_RenderText_Solid(font, "LEVEL UP!", textColor);
+    SDL_Texture* textTexture = SDL_CreateTextureFromSurface(renderer, textSurface);
+    SDL_Rect textRect = {WINDOW_WIDTH / 2 - textSurface->w / 2, 50, textSurface->w, textSurface->h};
+    SDL_RenderCopy(renderer, textTexture, NULL, &textRect);
+    SDL_FreeSurface(textSurface);
+    SDL_DestroyTexture(textTexture);
+
+    // Reducir tamaño de las opciones de armas
+    SDL_Rect optionRects[3] = {
+        {50, 150, 200, 50},  // Ajustado el tamaño
+        {50, 250, 200, 50},  // Ajustado el tamaño
+        {50, 350, 200, 50}   // Ajustado el tamaño
+    };
+
+    for (int i = 0; i < 3; ++i) {
+        SDL_RenderCopy(renderer, options[i].texture, NULL, &optionRects[i]);
+        SDL_Surface* optionTextSurface = TTF_RenderText_Solid(font, options[i].name, textColor);
+        SDL_Texture* optionTextTexture = SDL_CreateTextureFromSurface(renderer, optionTextSurface);
+        SDL_Rect optionTextRect = {optionRects[i].x + optionRects[i].w + 10, optionRects[i].y + optionRects[i].h / 2 - optionTextSurface->h / 2, optionTextSurface->w, optionTextSurface->h}; // Posicionar el texto a la derecha
+        SDL_RenderCopy(renderer, optionTextTexture, NULL, &optionTextRect);
+        SDL_FreeSurface(optionTextSurface);
+        SDL_DestroyTexture(optionTextTexture);
+    }
+
+    // Presentar la pantalla
+    SDL_RenderPresent(renderer);
+
+    // Manejar la logica de seleccion
+    SDL_Event event;
+    bool selecting = true;
+    while (selecting) {
+        while (SDL_PollEvent(&event)) {
+            if (event.type == SDL_QUIT) {
+                selecting = false;
+                running = 0;
+            } else if (event.type == SDL_MOUSEBUTTONDOWN) {
+                int mouseX = event.button.x;
+                int mouseY = event.button.y;
+
+                for (int i = 0; i < 3; ++i) {
+                    if (SDL_PointInRect(&(SDL_Point){mouseX, mouseY}, &optionRects[i])) {
+                        options[i].effect(player); // Aplicar el efecto de la opcion seleccionada
+                        selecting = false;
+                        break;
+                    }
+                }
+            }
+        }
+    }
+
+    TTF_CloseFont(font);
+
+    // Reanudar el juego despues de la seleccion
+    ResumeGame();
+}
+
+void PauseGameAndShowWeaponMenu(SDL_Renderer* renderer, Jugador* player) {
+    PauseGame();
+    ShowWeaponMenu(renderer, player);
+}
+
+void RenderXPPebbles(XPPebble* xpPebbles, int maxPebbles, SDL_Renderer* renderer, int camX, int camY) {
+    for (int i = 0; i < maxPebbles; ++i) {
+        if (xpPebbles[i].active) {
+            SDL_Rect xpRect = {xpPebbles[i].x - camX, xpPebbles[i].y - camY, xpPebbles[i].width, xpPebbles[i].height};
+            SDL_RenderCopy(renderer, xpPebbles[i].texture, NULL, &xpRect);
+        }
+    }
+}
+
+void DropXPPebble(int x, int y) {
+    for (int i = 0; i < MAX_XP_PEBBLES; ++i) {
+        if (!xpPebbles[i].active) {
+            xpPebbles[i].x = x;
+            xpPebbles[i].y = y;
+            xpPebbles[i].width = 20;
+            xpPebbles[i].height = 20;
+            xpPebbles[i].active = true;
+            xpPebbles[i].texture = xpPebbleTexture;
+            break;
+        }
+    }
+}
+
+void EnemyDeathLogic(Enemy* enemy) {
+    enemy->HP = 0;
+    DropXPPebble(enemy->x, enemy->y);
+    enemiesEliminated++;
+}
+
+void CollectXPPebbles(Jugador* player, XPPebble* xpPebbles, int maxPebbles, XPSystem* xpSystem, SDL_Renderer* renderer) {
+    int playerCenterX = player->x + PLAYER_WIDTH / 2;
+    int playerCenterY = player->y + PLAYER_HEIGHT / 2;
+
+    for (int i = 0; i < maxPebbles; ++i) {
+        if (xpPebbles[i].active) {
+            int pebbleCenterX = xpPebbles[i].x + xpPebbles[i].width / 2;
+            int pebbleCenterY = xpPebbles[i].y + xpPebbles[i].height / 2;
+
+            int deltaX = playerCenterX - pebbleCenterX;
+            int deltaY = playerCenterY - pebbleCenterY;
+            float distance = sqrt(deltaX * deltaX + deltaY * deltaY);
+
+            if (distance <= COLLECTION_RADIUS) {
+                xpPebbles[i].active = false;
+                CollectXP(xpSystem, 5, renderer, player);
+            }
+        }
+    }
+}
+
+void UpdateEnemies(Enemy* enemies, int maxEnemies, Jugador player, char** mapa, int filas, int columnas, int** costMap) {
+    InitializeCostMap(costMap, filas, columnas);
+    PropagateWave(costMap, mapa, filas, columnas, player.x / TILE_SIZE, player.y / TILE_SIZE);
+
+    for (int i = 0; i < maxEnemies; i++) {
+        if (enemies[i].HP > 0) {
+            MoveEnemyTowardsPlayer(&enemies[i], player, columnas * TILE_SIZE, filas * TILE_SIZE);
+        }
+    }
+}
+
+void InitializeXPPebbles(void) {
+    for (int i = 0; i < MAX_XP_PEBBLES; ++i) {
+        xpPebbles[i].active = false;
+    }
+}
+
+void LoadXPBarBackgroundTexture(SDL_Renderer* renderer) {
+    xpBarBackgroundTexture = LoadTexture("/Users/miguel/Documents/ArchivosJuego/xpbar.png", renderer);
+}
+
+bool CheckCollision(int x1, int y1, int w1, int h1, int x2, int y2, int w2, int h2) {
+    int collisionMargin = 200; // Reduce el tamaño de la caja de colisión
+    return x1 + collisionMargin < x2 + w2 - collisionMargin &&
+           x1 + w1 - collisionMargin > x2 + collisionMargin &&
+           y1 + collisionMargin < y2 + h2 - collisionMargin &&
+           y1 + h1 - collisionMargin > y2 + collisionMargin;
+}
+
+
+void InitializeCostMap(int** costMap, int filas, int columnas) {
+    for (int i = 0; i < filas; i++) {
+        for (int j = 0; j < columnas; j++) {
+            costMap[i][j] = -1; // Inicializar todos los costos como no accesibles
+        }
+    }
+}
+
+void PropagateWave(int** costMap, char** mapa, int filas, int columnas, int startX, int startY) {
+    int dx[] = {1, -1, 0, 0};
+    int dy[] = {0, 0, 1, -1};
+    int queue[filas * columnas][2];
+    int front = 0, back = 0;
+
+    queue[back][0] = startX;
+    queue[back][1] = startY;
+    back++;
+    costMap[startY][startX] = 0;
+
+    while (front < back) {
+        int x = queue[front][0];
+        int y = queue[front][1];
+        front++;
+
+        for (int i = 0; i < 4; i++) {
+            int nx = x + dx[i];
+            int ny = y + dy[i];
+
+            if (nx >= 0 && nx < columnas && ny >= 0 && ny < filas && mapa[ny][nx] == 'v' && costMap[ny][nx] == -1) {
+                costMap[ny][nx] = costMap[y][x] + 1;
+                queue[back][0] = nx;
+                queue[back][1] = ny;
+                back++;
+            }
+        }
+    }
+}
+
+void LoadWeaponTextures(SDL_Renderer* renderer) {
+    weaponTexture1 = LoadTexture("/Users/miguel/Documents/ArchivosJuego/pasivas/alas.png", renderer);
+    weaponTexture2 = LoadTexture("/Users/miguel/Documents/ArchivosJuego/pasivas/vino.png", renderer);
+    weaponTexture3 = LoadTexture("/Users/miguel/Documents/ArchivosJuego/pasivas/pocionAOE.png", renderer);
+}
+
+void LoadOptionTextures(SDL_Renderer* renderer) {
+    options[0].name = "Alas";
+    options[0].texture = LoadTexture("/Users/miguel/Documents/ArchivosJuego/pasivas/alas.png", renderer);
+    options[0].effect = IncreasePlayerSpeed;
+
+    options[1].name = "Vino";
+    options[1].texture = LoadTexture("/Users/miguel/Documents/ArchivosJuego/pasivas/vino.png", renderer);
+    options[1].effect = IncreaseBulletSpeed;
+
+    options[2].name = "Pocion Roja Extraña";
+    options[2].texture = LoadTexture("/Users/miguel/Documents/ArchivosJuego/pasivas/pocionAOE.png", renderer);
+    options[2].effect = ShowWIPMessage;
+}
+
+void IncreasePlayerSpeed(Jugador* player) {
+    player->speed += 2; // Aumenta la velocidad del jugador
+}
+
+void IncreaseBulletSpeed(Jugador* player) {
+    BULLET_FIRE_INTERVAL -= 100; // Aumenta la velocidad de las balas
+}
+
+void ShowWIPMessage(Jugador* player) {
+    printf("WIP\n"); // Mostrar mensaje "WIP"
+}
+
+void HandleCollisions(Jugador* player, Enemy* enemies, int maxEnemies, int maxX, int maxY) {
+    int playerCenterX = player->x + PLAYER_WIDTH / 2;
+    int playerCenterY = player->y + PLAYER_HEIGHT / 2;
+    float epsilon = 0.001f; // Pequeño valor para evitar division por cero
+    float maxPush = 5.0f;   // Limitar el empuje a un valor maximo menor
+    float pushBackForce = 0.1f; // Fuerza de empuje reducida
+
+    for (int i = 0; i < maxEnemies; ++i) {
+        if (enemies[i].HP > 0) {
+            int enemyCenterX = enemies[i].x + enemies[i].width / 2;
+            int enemyCenterY = enemies[i].y + enemies[i].height / 2;
+
+            float deltaX = playerCenterX - enemyCenterX;
+            float deltaY = playerCenterY - enemyCenterY;
+            float distance = sqrt(deltaX * deltaX + deltaY * deltaY);
+
+            // Solo empujar enemigos entre ellos, no al jugador
+            if (distance < (PLAYER_WIDTH / 2 + enemies[i].width / 2)) {
+                float overlap = (PLAYER_WIDTH / 2 + enemies[i].width / 2) - distance;
+                float invDistance = 1.0f / (distance + epsilon);
+                float pushX = deltaX * invDistance * overlap * pushBackForce;
+                float pushY = deltaY * invDistance * overlap * pushBackForce;
+
+                if (fabs(pushX) > maxPush) pushX = (pushX > 0) ? maxPush : -maxPush;
+                if (fabs(pushY) > maxPush) pushY = (pushY > 0) ? maxPush : -maxPush;
+
+                // En lugar de mover al jugador, solo empuja al enemigo
+                enemies[i].x -= pushX;
+                enemies[i].y -= pushY;
+
+                // Evitar que el enemigo se empuje fuera de los limites del mapa
+                if (enemies[i].x < 0) enemies[i].x = 0;
+                if (enemies[i].y < 0) enemies[i].y = 0;
+                if (enemies[i].x > maxX) enemies[i].x = maxX;
+                if (enemies[i].y > maxY) enemies[i].y = maxY;
+            }
+
+            // Manejar colisiones entre enemigos
+            for (int j = 0; j < maxEnemies; ++j) {
+                if (i != j && enemies[j].HP > 0) {
+                    int otherEnemyCenterX = enemies[j].x + enemies[j].width / 2;
+                    int otherEnemyCenterY = enemies[j].y + enemies[j].height / 2;
+
+                    float deltaXEnemies = enemyCenterX - otherEnemyCenterX;
+                    float deltaYEnemies = enemyCenterY - otherEnemyCenterY;
+                    float distanceEnemies = sqrt(deltaXEnemies * deltaXEnemies + deltaYEnemies * deltaYEnemies);
+
+                    if (distanceEnemies < (enemies[i].width / 2 + enemies[j].width / 2)) {
+                        float overlapEnemies = (enemies[i].width / 2 + enemies[j].width / 2) - distanceEnemies;
+                        float invDistanceEnemies = 1.0f / (distanceEnemies + epsilon);
+                        float pushXEnemies = deltaXEnemies * invDistanceEnemies * overlapEnemies * pushBackForce;
+                        float pushYEnemies = deltaYEnemies * invDistanceEnemies * overlapEnemies * pushBackForce;
+
+                        if (fabs(pushXEnemies) > maxPush) pushXEnemies = (pushXEnemies > 0) ? maxPush : -maxPush;
+                        if (fabs(pushYEnemies) > maxPush) pushYEnemies = (pushYEnemies > 0) ? maxPush : -maxPush;
+
+                        enemies[i].x += pushXEnemies / 2;
+                        enemies[i].y += pushYEnemies / 2;
+                        enemies[j].x -= pushXEnemies / 2;
+                        enemies[j].y -= pushYEnemies / 2;
+
+                        // Limitar el empuje a los limites del mapa y repeler si estan en los limites
+                        if (enemies[i].x < 0) enemies[i].x = 0;
+                        if (enemies[i].y < 0) enemies[i].y = 0;
+                        if (enemies[i].x > maxX) enemies[i].x = maxX;
+                        if (enemies[i].y > maxY) enemies[i].y = maxY;
+                        if (enemies[j].x < 0) enemies[j].x = 0;
+                        if (enemies[j].y < 0) enemies[j].y = 0;
+                        if (enemies[j].x > maxX) enemies[j].x = maxX;
+                        if (enemies[j].y > maxY) enemies[j].y = maxY;
+                    }
+                }
+            }
+        }
+    }
+}
+
+void LoadMenuTextures(SDL_Renderer* renderer) {
+    playButtonTexture = LoadTexture("/Users/miguel/Documents/ArchivosJuego/Gui/play.png", renderer);
+    scoresButtonTexture = LoadTexture("/Users/miguel/Documents/ArchivosJuego/Gui/scores.png", renderer);
+    exitButtonTexture = LoadTexture("//Users/miguel/Documents/ArchivosJuego/Gui/exit.png", renderer);
+}
+
+void RenderMenu(SDL_Renderer* renderer) {
+    // Configurar el color de fondo del renderizador (negro)
+/*    SDL_SetRenderDrawColor(renderer, 0, 0, 0, 255);*/ // Negro opaco
+//    SDL_RenderPresent(renderer);
+    SDL_RenderClear(renderer);
+    SDL_Rect backgroundRect = {0, 0, WINDOW_WIDTH, WINDOW_HEIGHT};
+    SDL_RenderCopy(renderer, backgroundMenuTexture, NULL, &backgroundRect);
+
+
+    // Renderizar los botones del menú
+    SDL_Rect playButtonRect = {WINDOW_WIDTH / 2 + 200, 70, 150, 75};
+    SDL_Rect scoresButtonRect = {WINDOW_WIDTH / 2 + 200, 200, 150, 75};
+    SDL_Rect exitButtonRect = {WINDOW_WIDTH / 2 + 200, 370, 150, 75};
+
+    SDL_RenderCopy(renderer, playButtonTexture, NULL, &playButtonRect);
+    SDL_RenderCopy(renderer, scoresButtonTexture, NULL, &scoresButtonRect);
+    SDL_RenderCopy(renderer, exitButtonTexture, NULL, &exitButtonRect);
+
+    // Presentar la pantalla
+//    SDL_RenderPresent(renderer);
+}
+
+
+
+void HandleMenuEvents(SDL_Event* event, SDL_Renderer* renderer) {
+    if (event->type == SDL_MOUSEBUTTONDOWN) {
+        int mouseX = event->button.x;
+        int mouseY = event->button.y;
+
+        SDL_Rect playButtonRect = {WINDOW_WIDTH / 2 + 200, 71, 160, 75};
+        SDL_Rect scoresButtonRect = {WINDOW_WIDTH / 2 + 200, 201, 160, 75};
+        SDL_Rect exitButtonRect = {WINDOW_WIDTH / 2 + 200, 371, 160, 75};
+
+        if (SDL_PointInRect(&(SDL_Point){mouseX, mouseY}, &playButtonRect)) {
+            CapturePlayerName(renderer);
+            StartGame();  // Iniciar el tiempo del juego
+            gameState = STATE_PLAYING;
+        } else if (SDL_PointInRect(&(SDL_Point){mouseX, mouseY}, &scoresButtonRect)) {
+            gameState = STATE_SCORES;
+        } else if (SDL_PointInRect(&(SDL_Point){mouseX, mouseY}, &exitButtonRect)) {
+            gameState = STATE_EXIT;
+        }
+    }
+}
+
+
+void CapturePlayerName(SDL_Renderer* renderer) {
+    int running;
+    SDL_StartTextInput();
+    SDL_Event event;
+    bool capturingName = true;
+
+    SDL_Color textColor = {0, 0, 0, 255}; // Color negro para el texto
+    SDL_Color bgColor = {255, 255, 255, 255}; // Color blanco para el fondo
+    TTF_Font* font = TTF_OpenFont("/Users/miguel/Documents/ArchivosJuego/font.ttf", 24);
+
+    if (!font) {
+        printf("Failed to load font: %s\n", TTF_GetError());
+        return;
+    }
+
+    while (capturingName) {
+        while (SDL_PollEvent(&event)) {
+            if (event.type == SDL_QUIT) {
+                capturingName = false;
+                running = 0;
+            } else if (event.type == SDL_TEXTINPUT) {
+                strcat(playerName, event.text.text);
+            } else if (event.type == SDL_KEYDOWN) {
+                if (event.key.keysym.sym == SDLK_RETURN) {
+                    capturingName = false;
+                    isNameCaptured = true;
+                    SavePlayerName(playerName);
+                    gameState = STATE_PLAYING;
+                } else if (event.key.keysym.sym == SDLK_BACKSPACE && strlen(playerName) > 0) {
+                    playerName[strlen(playerName) - 1] = '\0';
+                }
+            }
+        }
+
+        SDL_RenderClear(renderer);
+
+        // Renderizar el recuadro blanco
+        SDL_Rect inputRect = {WINDOW_WIDTH / 2 - 150, WINDOW_HEIGHT / 2 - 25, 300, 50};
+        SDL_SetRenderDrawColor(renderer, bgColor.r, bgColor.g, bgColor.b, bgColor.a);
+        SDL_RenderFillRect(renderer, &inputRect);
+
+        // Renderizar el texto de indicación
+        SDL_Surface* promptSurface = TTF_RenderText_Solid(font, "Ingrese su nombre:", textColor);
+        if (promptSurface) {
+            SDL_Texture* promptTexture = SDL_CreateTextureFromSurface(renderer, promptSurface);
+            if (promptTexture) {
+                SDL_Rect promptRect = {WINDOW_WIDTH / 2 - promptSurface->w / 2, WINDOW_HEIGHT / 2 - 75, promptSurface->w, promptSurface->h};
+                SDL_RenderCopy(renderer, promptTexture, NULL, &promptRect);
+                SDL_DestroyTexture(promptTexture);
+            }
+            SDL_FreeSurface(promptSurface);
+        }
+
+        // Renderizar el nombre actual ingresado
+        if (strlen(playerName) > 0) {
+            SDL_Surface* textSurface = TTF_RenderText_Solid(font, playerName, textColor);
+            if (textSurface) {
+                SDL_Texture* textTexture = SDL_CreateTextureFromSurface(renderer, textSurface);
+                if (textTexture) {
+                    SDL_Rect textRect = {inputRect.x + 10, inputRect.y + (inputRect.h - textSurface->h) / 2, textSurface->w, textSurface->h};
+                    SDL_RenderCopy(renderer, textTexture, NULL, &textRect);
+                    SDL_DestroyTexture(textTexture);
+                }
+                SDL_FreeSurface(textSurface);
+            }
+        }
+
+        SDL_RenderPresent(renderer);
+        SDL_Delay(16);
+    }
+
+    TTF_CloseFont(font);
+    SDL_StopTextInput();
+}
+
+
+void SavePlayerName(const char* playerName) {
+    FILE* file = fopen("/Users/miguel/Documents/ArchivosJuego/listaNombres.txt", "a");
+    if (file != NULL) {
+        fprintf(file, "%s\n", playerName);
+        fclose(file);
+    } else {
+        printf("Error al abrir el archivo para guardar el nombre del jugador.\n");
+    }
+}
+
+void LoadDeathScreenTextures(SDL_Renderer* renderer) {
+    skullTexture = LoadTexture("/Users/miguel/Documents/ArchivosJuego/guiDeath/deathSkull.png", renderer);
+    returnToMenuButtonTexture = LoadTexture("/Users/miguel/Documents/ArchivosJuego/guiDeath/botonDeath.png", renderer);
+}
+
+
+void HandlePlayerDamage(Jugador* player, Enemy* enemies, int maxEnemies) {
+    Uint32 currentTime = SDL_GetTicks();
+    bool isTakingDamage = false;
+
+    int playerHitboxX = player->x + (PLAYER_WIDTH - PLAYER_HITBOX_WIDTH) / 2;
+    int playerHitboxY = player->y + (PLAYER_HEIGHT - PLAYER_HITBOX_HEIGHT) / 2;
+
+    for (int i = 0; i < maxEnemies; ++i) {
+        if (enemies[i].HP > 0) {
+            int enemyHitboxX = enemies[i].x + (enemies[i].width - ENEMY_HITBOX_WIDTH) / 2;
+            int enemyHitboxY = enemies[i].y + (enemies[i].height - ENEMY_HITBOX_HEIGHT) / 2;
+
+            if (CheckRectCollision(playerHitboxX, playerHitboxY, PLAYER_HITBOX_WIDTH, PLAYER_HITBOX_HEIGHT,
+                                   enemyHitboxX, enemyHitboxY, ENEMY_HITBOX_WIDTH, ENEMY_HITBOX_HEIGHT)) {
+                isTakingDamage = true;
+                if (currentTime - lastDamageTime >= 1000) {
+                    player->HP -= 1;
+                    lastDamageTime = currentTime;
+                }
+            }
+        }
+    }
+
+    if (player->HP <= 0) {
+        HandlePlayerDeath(player);  // Manejar la muerte del jugador
+    }
+}
+
+
+
+void RenderDeathScreen(SDL_Renderer* renderer, SDL_Texture* backgroundTexture, char** mapa, int filas, int columnas, int camX, int camY, int healState, Jugador player, XPPebble* xpPebbles, XPSystem xpSystem, Enemy* enemies, int maxEnemies, Bullet* bullets, int maxBullets) {
+    // Renderizar el fondo del juego (el estado del juego pausado)
+    SDL_RenderClear(renderer);
+    SDL_RenderCopy(renderer, backgroundTexture, NULL, NULL);
+    RenderMap(mapa, filas, columnas, renderer, camX, camY, healState);
+    RenderPlayer(player, renderer, camX, camY);
+    RenderXPPebbles(xpPebbles, MAX_XP_PEBBLES, renderer, camX, camY);
+    RenderXPBar(xpSystem, renderer);
+
+    for (int i = 0; i < MAX_ENEMIES; i++) {
+        RenderEnemy(enemies[i], renderer, camX, camY);
+    }
+
+    RenderBullets(bullets, maxBullets, renderer, camX, camY);
+    RenderHealth(renderer, player.HP);
+
+    // Renderizar fondo semitransparente rojo
+    SDL_SetRenderDrawBlendMode(renderer, SDL_BLENDMODE_BLEND);
+    SDL_SetRenderDrawColor(renderer, 255, 0, 0, 150); // Rojo semitransparente
+    SDL_Rect deathScreenRect = { 0, 0, WINDOW_WIDTH, WINDOW_HEIGHT };
+    SDL_RenderFillRect(renderer, &deathScreenRect);
+
+    // Renderizar la calavera en el centro
+    SDL_Rect skullRect = { WINDOW_WIDTH / 2 - 50, WINDOW_HEIGHT / 2 - 100, 100, 100 };
+    SDL_RenderCopy(renderer, skullTexture, NULL, &skullRect);
+
+    // Renderizar el botón de retorno al menú (ajustado a 250x70 píxeles)
+    SDL_Rect returnToMenuButtonRect = {WINDOW_WIDTH / 2 - 125, WINDOW_HEIGHT / 2 + 50, 250, 70};
+    SDL_RenderCopy(renderer, returnToMenuButtonTexture, NULL, &returnToMenuButtonRect);
+
+    SDL_RenderPresent(renderer);
+}
+
+
+
+void HandleDeathScreenEvents(SDL_Event* event, Jugador* player, Enemy* enemies, Bullet* bullets, XPPebble* xpPebbles, XPSystem* xpSystem, int mapHeight, int mapWidth, int maxBullets, bool* mouseButtonDown) {
+    if (event->type == SDL_MOUSEBUTTONDOWN) {
+        int mouseX = event->button.x;
+        int mouseY = event->button.y;
+
+        SDL_Rect returnToMenuButtonRect = {WINDOW_WIDTH / 2 - 125, WINDOW_HEIGHT / 2 + 50, 250, 100};
+
+        if (SDL_PointInRect(&(SDL_Point){mouseX, mouseY}, &returnToMenuButtonRect)) {
+            gameState = STATE_MENU;
+            isPlayerDead = false;
+            ResetGame(player, enemies, bullets, xpPebbles, xpSystem, mapWidth, mapHeight, maxBullets, mouseButtonDown);
+            
+        }
+    }
+}
+
+void ResetGame(Jugador* player, Enemy* enemies, Bullet* bullets, XPPebble* xpPebbles, XPSystem* xpSystem, int mapWidth, int mapHeight, int maxBullets, bool*  mouseButtonDown) {
+    // Reiniciar estado del jugador
+    player->x = 1635;
+    player->y = 835;
+    player->HP = 4;
+    player->currentFrame = 0;
+    player->movingLeft = false;
+    player->movingRight = false;
+    player->movingUp = false;
+    player->movingDown = false;
+    
+    *mouseButtonDown = false;
+        
+    // Reiniciar enemigos
+    for (int i = 0; i < MAX_ENEMIES; ++i) {
+        enemies[i].HP = 0;
+    }
+
+    // Reiniciar balas
+    for (int i = 0; i < maxBullets; ++i) {
+        bullets[i].active = false;
+    }
+
+    // Reiniciar pebbles de XP
+    for (int i = 0; i < MAX_XP_PEBBLES; ++i) {
+        xpPebbles[i].active = false;
+    }
+
+    // Reiniciar sistema de XP
+    xpSystem->xp = 0;
+    xpSystem->level = 1;
+    xpSystem->xpForNextLevel = 50;
+
+    // Reiniciar nombre del jugador
+    strcpy(playerName, "");
+    isNameCaptured = false;
+}
+
+void LoadBackgroundMenuTexture(SDL_Renderer* renderer) {
+    backgroundMenuTexture = LoadTexture("/Users/miguel/Documents/ArchivosJuego/Gui/fondoMenu.png", renderer);
+}
+
+void LoadEnemyFrames(SDL_Renderer* renderer) {
+    enemyFrames[0] = LoadTexture("/Users/miguel/Documents/ArchivosJuego/enemigos/frame2A.png", renderer);
+    enemyFrames[1] = LoadTexture("/Users/miguel/Documents/ArchivosJuego/enemigos/frame2B.png", renderer);
+    enemyFrames[2] = LoadTexture("/Users/miguel/Documents/ArchivosJuego/enemigos/frame2C.png", renderer);
+    enemyFrames[3] = LoadTexture("/Users/miguel/Documents/ArchivosJuego/enemigos/frame2D.png", renderer);
+}
+
+void UpdateEnemyAnimation(Enemy* enemy, Uint32 currentTime) {
+    if (currentTime - enemy->lastFrameTime >= 200) {  // 200 ms por frame
+        enemy->currentFrame = (enemy->currentFrame + 1) % 4;
+        enemy->lastFrameTime = currentTime;
+    }
+}
+
+void StartGame(void) {
+    startTime = SDL_GetTicks();
+}
+
+void HandlePlayerDeath(Jugador* player) {
+    timeAlive = SDL_GetTicks() - startTime;
+    SaveRankingEntry(playerName, timeAlive, enemiesEliminated);
+    gameState = STATE_DEATH;
+    isPlayerDead = true;
+}
+
+void SaveRankingEntry(const char* playerName, Uint32 timeAlive, int enemiesEliminated) {
+    FILE* file = fopen("/Users/miguel/Documents/ArchivosJuego/ranking.txt", "a");
+    if (file != NULL) {
+        fprintf(file, "%s %u %d\n", playerName, timeAlive, enemiesEliminated);
+        fclose(file);
+    } else {
+        printf("Error al abrir el archivo de ranking.\n");
+    }
+}
+
+void RenderScores(SDL_Renderer* renderer) {
+    SDL_RenderClear(renderer);
+
+    // Leer el archivo de ranking
+    FILE* file = fopen("/Users/miguel/Documents/ArchivosJuego/ranking.txt", "r");
+    if (file != NULL) {
+        char line[100];
+        int y = 50;
+        while (fgets(line, sizeof(line), file)) {
+            char name[50];
+            Uint32 time;
+            int enemies;
+            sscanf(line, "%s %u %d", name, &time, &enemies);
+
+            // Convertir tiempo a minutos y segundos
+            int minutes = time / 60000;
+            int seconds = (time % 60000) / 1000;
+
+            // Crear el texto a renderizar
+            char text[150];
+            sprintf(text, "%s: %d min %d sec : %d enemigos eliminados", name, minutes, seconds, enemies);
+
+            TTF_Font* font = TTF_OpenFont("/Users/miguel/Documents/ArchivosJuego/font.ttf", 24);
+            SDL_Color textColor = {255, 255, 255, 255};  // Color blanco
+            SDL_Surface* textSurface = TTF_RenderText_Solid(font, text, textColor);
+            SDL_Texture* textTexture = SDL_CreateTextureFromSurface(renderer, textSurface);
+
+            // Renderizar el texto
+            SDL_Rect textRect = {50, y, textSurface->w, textSurface->h};
+            SDL_RenderCopy(renderer, textTexture, NULL, &textRect);
+
+            SDL_FreeSurface(textSurface);
+            SDL_DestroyTexture(textTexture);
+            TTF_CloseFont(font);
+
+            y += 50;  // Mover hacia abajo para el próximo texto
+        }
+        fclose(file);
+    } else {
+        printf("Error al abrir el archivo de ranking.\n");
+    }
+
+    // Renderizar el botón de "Regresar"
+    SDL_Rect backButtonRect = { 35, WINDOW_HEIGHT / 2 + 120, 300, 200};  // Ajusta según sea necesario
+    SDL_RenderCopy(renderer, backButtonTexture, NULL, &backButtonRect);
+    SDL_RenderPresent(renderer);
+}
+
+
+
+void LoadBackButtonTexture(SDL_Renderer* renderer) {
+    backButtonTexture = LoadTexture("/Users/miguel/Documents/ArchivosJuego/Gui/back.png", renderer);
+}
+
+void HandleScoresEvents(SDL_Event* event) {
+    if (event->type == SDL_MOUSEBUTTONDOWN) {
+        int mouseX = event->button.x;
+        int mouseY = event->button.y;
+
+        SDL_Rect backButtonRect = { 35, WINDOW_HEIGHT / 2 + 120, 300, 200};  // Debe coincidir con el rectángulo de renderizado
+
+        if (SDL_PointInRect(&(SDL_Point){mouseX, mouseY}, &backButtonRect)) {
+            gameState = STATE_MENU;
+        }
+    }
+}
+
+void ReallocateEnemies(Enemy** enemies, int newSize) {
+    Enemy* newEnemies = (Enemy*)realloc(*enemies, newSize * sizeof(Enemy));
+    if (newEnemies == NULL) {
+        printf("Error al reasignar memoria para los enemigos.\n");
+        SDL_Quit();
+        exit(-1);
+    }
+    *enemies = newEnemies;
+    for (int i = MAX_ENEMIES; i < newSize; ++i) {
+        (*enemies)[i].lastMoveTime = SDL_GetTicks();
+    }
+}
+
+float CalculateDistance(int x1, int y1, int x2, int y2) {
+    int deltaX = x2 - x1;
+    int deltaY = y2 - y1;
+    return sqrt(deltaX * deltaX + deltaY * deltaY);
+}
+
+bool CheckRectCollision(int x1, int y1, int w1, int h1, int x2, int y2, int w2, int h2) {
+    return x1 < x2 + w2 &&
+           x1 + w1 > x2 &&
+           y1 < y2 + h2 &&
+           y1 + h1 > y2;
+}
+//agregarlogica
